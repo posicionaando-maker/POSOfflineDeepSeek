@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>POS Pro - Sistema de Ventas Offline</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Animaciones y estilos personalizados */
+        .transition {
+            transition: all 0.2s ease;
+        }
+        
+        .product-card:active {
+            transform: scale(0.98);
+        }
+        
+        /* Scrollbar personalizado */
+        #categorias::-webkit-scrollbar,
+        #search-results::-webkit-scrollbar {
+            height: 4px;
+        }
+        
+        #categorias::-webkit-scrollbar-track,
+        #search-results::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        
+        #categorias::-webkit-scrollbar-thumb,
+        #search-results::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        
+        /* Animación para el toast */
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        #toast-message:not(.hidden) {
+            animation: slideIn 0.3s ease;
+        }
+        
+        /* Animación para el modal */
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        .modal-content {
+            animation: modalFadeIn 0.2s ease;
+        }
+        
+        /* Efecto de carga */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .loading-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        /* Badge de stock bajo */
+        .low-stock {
+            background-color: #fef3c7;
+            color: #d97706;
+        }
+        
+        /* Mejoras táctiles */
+        @media (hover: none) {
+            .product-card:hover {
+                transform: none;
+            }
+            
+            button:active {
+                transform: scale(0.97);
+            }
+        }
+        
+        /* Cantidad input spinner */
+        .quantity-input {
+            -moz-appearance: textfield;
+        }
+        
+        .quantity-input::-webkit-inner-spin-button,
+        .quantity-input::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-6 max-w-6xl">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+            <div class="flex flex-col sm:flex-row justify-between items-center gap-3">
+                <h1 class="text-2xl font-bold text-indigo-600">
+                    <i class="fas fa-store mr-2"></i>POS Pro
+                </h1>
+                <div class="flex gap-3 w-full sm:w-auto justify-center">
+                    <!-- Reporte del día -->
+                    <button onclick="mostrarReporteDiario()" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition shadow-md">
+                        <i class="fas fa-chart-line mr-2"></i>
+                        Reporte
+                    </button>
+                    <button onclick="verCarrito()" class="relative bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition shadow-md">
+                        <i class="fas fa-shopping-cart mr-2"></i>
+                        Carrito (<span id="cart-count">0</span>)
+                    </button>
+                    <button onclick="verVentasPendientes()" class="relative bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition shadow-md">
+                        <i class="fas fa-clock mr-2"></i>
+                        Pendientes
+                        <span id="pendientes-badge" class="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5 hidden min-w-[20px] text-center">0</span>
+                    </button>
+                    <button id="btn-cobrar" onclick="cobrar()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition shadow-md">
+                        <i class="fas fa-credit-card mr-2"></i>Cobrar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Búsqueda de productos -->
+        <div class="mb-6">
+            <div class="relative">
+                <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                <input type="text" 
+                       id="buscador" 
+                       placeholder="Buscar productos por nombre..." 
+                       class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+            </div>
+            <div id="search-results" class="mt-2 text-sm text-gray-500 hidden">
+                <i class="fas fa-search mr-1"></i>
+                <span id="search-count">0</span> productos encontrados
+            </div>
+        </div>
+
+        <!-- Total Display Mejorado -->
+        <div class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg shadow-md p-4 mb-6 text-white">
+            <div class="text-center">
+                <p class="text-indigo-100 text-sm uppercase tracking-wide">Total Actual</p>
+                <p class="text-4xl font-bold">$<span id="total-display">0.00</span></p>
+                <p class="text-indigo-100 text-sm mt-1"><span id="items-count">0</span> items en carrito</p>
+            </div>
+        </div>
+
+        <!-- Categorías -->
+        <div class="mb-6">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="text-gray-600 text-sm font-semibold">
+                    <i class="fas fa-tags mr-1"></i>Categorías
+                </h2>
+                <button onclick="importarDesdeGoogle()" class="text-xs bg-blue-100 text-blue-600 px-3 py-1 rounded-full hover:bg-blue-200 transition">
+                    <i class="fas fa-sync-alt mr-1"></i>Sincronizar
+                </button>
+            </div>
+            <div id="categorias" class="flex gap-2 overflow-x-auto pb-2"></div>
+        </div>
+
+        <!-- Productos -->
+        <div>
+            <h2 class="text-gray-600 text-sm font-semibold mb-2">
+                <i class="fas fa-utensils mr-1"></i>Productos
+            </h2>
+            <div id="lista-productos" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+        </div>
+    </div>
+
+    <!-- Modal de Carrito Mejorado -->
+    <div id="cart-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col modal-content">
+            <div class="flex justify-between items-center p-6 border-b">
+                <h2 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-shopping-cart mr-2 text-indigo-600"></i>Carrito de Compras
+                </h2>
+                <button onclick="cerrarModal()" class="text-gray-400 hover:text-gray-600 transition text-2xl leading-none">
+                    &times;
+                </button>
+            </div>
+            <div id="cart-items-list" class="flex-1 overflow-y-auto p-6"></div>
+            <div class="border-t p-6 bg-gray-50">
+                <div class="flex justify-between items-center mb-4">
+                    <span class="text-gray-600 font-semibold">Total:</span>
+                    <span class="text-2xl font-bold text-indigo-600">$<span id="cart-total">0.00</span></span>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="reiniciar()" class="flex-1 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition font-semibold">
+                        <i class="fas fa-trash-alt mr-2"></i>Vaciar
+                    </button>
+                    <button id="modal-cobrar-btn" onclick="cobrarDesdeModal()" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition font-semibold">
+                        <i class="fas fa-credit-card mr-2"></i>Cobrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Cantidad -->
+    <div id="quantity-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full modal-content">
+            <div class="p-6">
+                <h3 class="text-lg font-semibold mb-4" id="quantity-product-name">Agregar cantidad</h3>
+                <div class="flex items-center justify-center gap-4 mb-4">
+                    <button onclick="cambiarCantidadInput(-1)" class="bg-gray-200 w-12 h-12 rounded-full text-2xl hover:bg-gray-300 transition">-</button>
+                    <input type="number" id="quantity-input" value="1" min="1" class="quantity-input w-24 h-12 text-center text-xl border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <button onclick="cambiarCantidadInput(1)" class="bg-gray-200 w-12 h-12 rounded-full text-2xl hover:bg-gray-300 transition">+</button>
+                </div>
+                <div class="text-center mb-4">
+                    <p class="text-sm text-gray-500">Stock disponible: <span id="quantity-stock">0</span></p>
+                    <p class="text-sm text-gray-500">Subtotal: $<span id="quantity-subtotal">0.00</span></p>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="cerrarModalCantidad()" class="flex-1 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition">Cancelar</button>
+                    <button onclick="confirmarAgregarCantidad()" class="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">Agregar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Reporte Diario -->
+    <div id="reporte-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col modal-content">
+            <div class="flex justify-between items-center p-6 border-b">
+                <h2 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-chart-line mr-2 text-blue-600"></i>Reporte del Día
+                </h2>
+                <button onclick="cerrarReporteModal()" class="text-gray-400 hover:text-gray-600 transition text-2xl leading-none">
+                    &times;
+                </button>
+            </div>
+            <div id="reporte-content" class="flex-1 overflow-y-auto p-6"></div>
+        </div>
+    </div>
+
+    <!-- Modal de Pago -->
+    <div id="pago-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full modal-content">
+            <div class="p-6">
+                <h3 class="text-lg font-semibold mb-4">Método de pago</h3>
+                <div class="space-y-2">
+                    <button onclick="seleccionarMetodoPago('Efectivo')" class="w-full text-left px-4 py-3 hover:bg-gray-100 rounded-lg transition">
+                        💵 Efectivo
+                    </button>
+                    <button onclick="seleccionarMetodoPago('Tarjeta')" class="w-full text-left px-4 py-3 hover:bg-gray-100 rounded-lg transition">
+                        💳 Tarjeta
+                    </button>
+                    <button onclick="seleccionarMetodoPago('Transferencia')" class="w-full text-left px-4 py-3 hover:bg-gray-100 rounded-lg transition">
+                        🏦 Transferencia
+                    </button>
+                    <button onclick="cerrarModalPago()" class="w-full text-left px-4 py-3 text-red-600 hover:bg-gray-100 rounded-lg transition mt-2">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full modal-content">
+            <div class="p-6">
+                <h3 class="text-lg font-semibold mb-4" id="confirm-title">Confirmar</h3>
+                <p class="text-gray-600 mb-6" id="confirm-message">¿Estás seguro?</p>
+                <div class="flex gap-3">
+                    <button onclick="confirmarRespuesta(false)" class="flex-1 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition">Cancelar</button>
+                    <button onclick="confirmarRespuesta(true)" class="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast-message" class="fixed bottom-4 right-4 bg-gray-900 text-white px-5 py-3 rounded-lg shadow-lg hidden z-50 max-w-sm">
+        <div class="flex items-center">
+            <i class="fas fa-check-circle mr-3 text-green-400"></i>
+            <span id="toast-text" class="text-sm">Mensaje</span>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg p-6 flex flex-col items-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+            <p class="text-gray-700">Procesando...</p>
+        </div>
+    </div>
+
+    <!-- Reproductor de audio (oculto) -->
+    <audio id="sound-add" preload="auto">
+        <source src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="sound-success" preload="auto">
+        <source src="https://www.soundjay.com/misc/sounds/cash-register-2.mp3" type="audio/mpeg">
+    </audio>
+
+    <script src="pos.js"></script>
+    
+    <script>
+        // Funciones adicionales para los modales
+        let pendingConfirmCallback = null;
+        let pendingMetodoPago = null;
+        let pendingProductoCantidad = null;
+        
+        function cobrarDesdeModal() {
+            cobrar();
+            cerrarModal();
+        }
+        
+        function mostrarModalCantidad(producto) {
+            pendingProductoCantidad = producto;
+            document.getElementById('quantity-product-name').textContent = `Agregar ${producto.nombre}`;
+            document.getElementById('quantity-input').value = 1;
+            document.getElementById('quantity-stock').textContent = producto.stock;
+            actualizarSubtotalCantidad();
+            document.getElementById('quantity-modal').classList.remove('hidden');
+            document.getElementById('quantity-modal').classList.add('flex');
+        }
+        
+        function cambiarCantidadInput(delta) {
+            const input = document.getElementById('quantity-input');
+            let value = parseInt(input.value) + delta;
+            if (value < 1) value = 1;
+            if (pendingProductoCantidad && value > pendingProductoCantidad.stock) value = pendingProductoCantidad.stock;
+            input.value = value;
+            actualizarSubtotalCantidad();
+        }
+        
+        function actualizarSubtotalCantidad() {
+            if (pendingProductoCantidad) {
+                const cantidad = parseInt(document.getElementById('quantity-input').value);
+                const subtotal = pendingProductoCantidad.precio * cantidad;
+                document.getElementById('quantity-subtotal').textContent = subtotal.toFixed(2);
+            }
+        }
+        
+        function confirmarAgregarCantidad() {
+            if (pendingProductoCantidad) {
+                const cantidad = parseInt(document.getElementById('quantity-input').value);
+                agregarAlCarritoConCantidad(pendingProductoCantidad.id, cantidad);
+                cerrarModalCantidad();
+            }
+        }
+        
+        function cerrarModalCantidad() {
+            document.getElementById('quantity-modal').classList.add('hidden');
+            document.getElementById('quantity-modal').classList.remove('flex');
+            pendingProductoCantidad = null;
+        }
+        
+        function mostrarModalPago() {
+            return new Promise((resolve) => {
+                pendingMetodoPago = resolve;
+                document.getElementById('pago-modal').classList.remove('hidden');
+                document.getElementById('pago-modal').classList.add('flex');
+            });
+        }
+        
+        function seleccionarMetodoPago(metodo) {
+            if (pendingMetodoPago) {
+                pendingMetodoPago(metodo);
+                pendingMetodoPago = null;
+            }
+            cerrarModalPago();
+        }
+        
+        function cerrarModalPago() {
+            document.getElementById('pago-modal').classList.add('hidden');
+            document.getElementById('pago-modal').classList.remove('flex');
+            if (pendingMetodoPago) {
+                pendingMetodoPago(null);
+                pendingMetodoPago = null;
+            }
+        }
+        
+        function mostrarConfirmacion(titulo, mensaje, callback) {
+            document.getElementById('confirm-title').textContent = titulo;
+            document.getElementById('confirm-message').textContent = mensaje;
+            pendingConfirmCallback = callback;
+            document.getElementById('confirm-modal').classList.remove('hidden');
+            document.getElementById('confirm-modal').classList.add('flex');
+        }
+        
+        function confirmarRespuesta(confirmado) {
+            if (pendingConfirmCallback) {
+                pendingConfirmCallback(confirmado);
+                pendingConfirmCallback = null;
+            }
+            document.getElementById('confirm-modal').classList.add('hidden');
+            document.getElementById('confirm-modal').classList.remove('flex');
+        }
+        
+        function mostrarReporteDiario() {
+            mostrarReporteVentas();
+        }
+        
+        function cerrarReporteModal() {
+            document.getElementById('reporte-modal').classList.add('hidden');
+            document.getElementById('reporte-modal').classList.remove('flex');
+        }
+        
+        function mostrarLoading(mostrar) {
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) {
+                if (mostrar) {
+                    overlay.classList.remove('hidden');
+                    overlay.classList.add('flex');
+                } else {
+                    overlay.classList.add('hidden');
+                    overlay.classList.remove('flex');
+                }
+            }
+        }
+        
+        function reproducirSonido(tipo) {
+            try {
+                const audio = document.getElementById(`sound-${tipo}`);
+                if (audio) {
+                    audio.play().catch(e => console.log('Audio no disponible'));
+                }
+            } catch (error) {
+                console.log('Error reproduciendo sonido:', error);
+            }
+        }
+        
+        // Cerrar modales con ESC
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                cerrarModal();
+                cerrarModalCantidad();
+                cerrarModalPago();
+                cerrarReporteModal();
+            }
+        });
+        
+        // Cerrar modal al hacer clic fuera
+        document.addEventListener('DOMContentLoaded', function() {
+            const modal = document.getElementById('cart-modal');
+            if (modal) {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) cerrarModal();
+                });
+            }
+            
+            // Búsqueda en tiempo real
+            const buscador = document.getElementById('buscador');
+            if (buscador) {
+                buscador.addEventListener('input', function(e) {
+                    filtrarProductosPorBusqueda(e.target.value);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
